@@ -1,6 +1,6 @@
 {
   "version": "0.3.1",
-  "published_at": "2026-08-21T05:53:00+03:00",
+  "published_at": "2026-08-21T06:12:00+03:00",
   "notes": [
     "معاينة فورية لفيديو الصفحة الحالية من دون تشغيل yt-dlp",
     "تحديث المعاينة تلقائيًا عند التنقل بين الفيديوهات أو التبويبات",
@@ -8,6 +8,6 @@
     "التأكد الكامل عبر yt-dlp فقط عند بدء التنزيل أو طلب التحقق يدويًا"
   ],
   "package_url": "https://raw.githubusercontent.com/Tamer723/local-toolbox-updates/main/releases/LocalToolbox_update_0.3.1.zip",
-  "sha256": "329e28f59d15037402f42f623844310da6376958204fe8927064f8d198a6f9f9",
-  "size": 25131
+  "sha256": "9269820c313b2ba116b9b8555e25119fe9ca52bc0ef5d30987dd00f96a71cf75",
+  "size": 19225
 }

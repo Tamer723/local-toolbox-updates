@@ -1,14 +1,13 @@
 {
-  "version": "0.3.0",
-  "published_at": "2026-08-21T04:38:00+03:00",
+  "version": "0.3.1",
+  "published_at": "2026-08-21T05:53:00+03:00",
   "notes": [
-    "إضافة نظام تحديث بضغطة واحدة",
-    "فحص تلقائي للتحديثات كل 12 ساعة",
-    "التحقق من SHA-256 قبل التثبيت",
-    "نسخة احتياطية ومحاولة استرجاع عند فشل الاستبدال",
-    "إعادة تحميل الإضافة والاتصال بالـHelper تلقائيًا بعد التحديث"
+    "معاينة فورية لفيديو الصفحة الحالية من دون تشغيل yt-dlp",
+    "تحديث المعاينة تلقائيًا عند التنقل بين الفيديوهات أو التبويبات",
+    "إظهار عنوان وصورة YouTube فورًا واستكمال بيانات الصفحة في الخلفية",
+    "التأكد الكامل عبر yt-dlp فقط عند بدء التنزيل أو طلب التحقق يدويًا"
   ],
-  "package_url": "https://raw.githubusercontent.com/Tamer723/local-toolbox-updates/main/releases/LocalToolbox_update_0.3.0.zip",
-  "sha256": "1a90906e44cc3d74ff120c4de333ffdc90154a95b9cd5482db68a36721e50f68",
-  "size": 2633412
+  "package_url": "https://raw.githubusercontent.com/Tamer723/local-toolbox-updates/main/releases/LocalToolbox_update_0.3.1.zip",
+  "sha256": "329e28f59d15037402f42f623844310da6376958204fe8927064f8d198a6f9f9",
+  "size": 25131
 }

@@ -1,0 +1,101 @@
+name: Publish Local Toolbox update
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'release-config.json'
+      - 'build-input/**'
+      - '.github/workflows/publish-update.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: local-toolbox-update-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build verified update package
+        shell: python
+        run: |
+          import hashlib, json, pathlib, shutil, zipfile
+          from datetime import datetime, timezone
+
+          root = pathlib.Path.cwd()
+          cfg = json.loads((root / 'release-config.json').read_text(encoding='utf-8'))
+          version = str(cfg['version']).strip()
+          source = root / cfg.get('source_dir', f'build-input/{version}/extension')
+          if not source.is_dir():
+              raise SystemExit(f'missing source directory: {source}')
+
+          manifest = json.loads((source / 'manifest.json').read_text(encoding='utf-8'))
+          if manifest.get('version') != version:
+              raise SystemExit(f"manifest version {manifest.get('version')} != release version {version}")
+
+          staging = root / '.release-staging'
+          if staging.exists():
+              shutil.rmtree(staging)
+          payload_ext = staging / 'payload' / 'extension'
+          shutil.copytree(source, payload_ext)
+
+          releases = root / 'releases'
+          releases.mkdir(exist_ok=True)
+          package = releases / f'LocalToolbox_update_{version}.zip'
+          if package.exists():
+              package.unlink()
+
+          with zipfile.ZipFile(package, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+              for path in sorted((staging / 'payload').rglob('*')):
+                  if path.is_file():
+                      arc = path.relative_to(staging).as_posix()
+                      z.write(path, arc)
+
+          data = package.read_bytes()
+          sha = hashlib.sha256(data).hexdigest()
+          size = len(data)
+          latest = {
+              'version': version,
+              'published_at': datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),
+              'notes': cfg.get('notes', []),
+              'package_url': f'https://raw.githubusercontent.com/${{ github.repository }}/main/releases/{package.name}',
+              'sha256': sha,
+              'size': size,
+          }
+          (root / 'latest.json').write_text(json.dumps(latest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(f'Built {package.name}: {size} bytes, sha256={sha}')
+
+      - name: Verify generated metadata
+        shell: python
+        run: |
+          import hashlib, json, pathlib
+          root = pathlib.Path.cwd()
+          m = json.loads((root / 'latest.json').read_text(encoding='utf-8'))
+          p = root / 'releases' / f"LocalToolbox_update_{m['version']}.zip"
+          data = p.read_bytes()
+          assert len(data) == m['size'], (len(data), m['size'])
+          assert hashlib.sha256(data).hexdigest() == m['sha256']
+          print('size and SHA-256 verified')
+
+      - name: Commit generated package and feed
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add latest.json releases/
+          if git diff --cached --quiet; then
+            echo 'No generated changes to commit.'
+            exit 0
+          fi
+          VERSION=$(python -c 'import json; print(json.load(open("release-config.json"))["version"])')
+          git commit -m "Publish Local Toolbox ${VERSION} [skip ci]"
+          git push

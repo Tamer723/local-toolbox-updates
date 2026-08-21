@@ -1,0 +1,79 @@
+name: Build Local Toolbox 0.3.1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bootstrap/0.3.1/**'
+      - '.github/workflows/build-0.3.1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Reconstruct build input
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat bootstrap/0.3.1/part*.b64 | base64 --decode > /tmp/localtoolbox-031.zip
+          mkdir -p /tmp/lt031
+          unzip -q /tmp/localtoolbox-031.zip -d /tmp/lt031
+          test -f /tmp/lt031/helper-src/main.go
+          test -f /tmp/lt031/extension/manifest.json
+
+      - name: Build Windows helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/lt031/helper-src
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags='-s -w' -o /tmp/local-toolbox-helper.exe .
+          test -s /tmp/local-toolbox-helper.exe
+
+      - name: Build update package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/package
+          mkdir -p /tmp/package/payload/extension releases
+          cp /tmp/local-toolbox-helper.exe /tmp/package/payload/local-toolbox-helper.exe
+          cp -a /tmp/lt031/extension/. /tmp/package/payload/extension/
+          cd /tmp/package
+          zip -q -r "$GITHUB_WORKSPACE/releases/LocalToolbox_update_0.3.1.zip" payload
+          cd "$GITHUB_WORKSPACE"
+          SHA=$(sha256sum releases/LocalToolbox_update_0.3.1.zip | awk '{print $1}')
+          SIZE=$(stat -c%s releases/LocalToolbox_update_0.3.1.zip)
+          cat > releases/LocalToolbox_update_0.3.1.json <<EOF
+          {
+            "version": "0.3.1",
+            "sha256": "$SHA",
+            "size": $SIZE,
+            "package_url": "https://raw.githubusercontent.com/Tamer723/local-toolbox-updates/main/releases/LocalToolbox_update_0.3.1.zip"
+          }
+          EOF
+          echo "$SHA  LocalToolbox_update_0.3.1.zip" > releases/LocalToolbox_update_0.3.1.sha256
+
+      - name: Publish package to repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'local-toolbox-build'
+          git config user.email 'actions@users.noreply.github.com'
+          git add releases/LocalToolbox_update_0.3.1.zip releases/LocalToolbox_update_0.3.1.json releases/LocalToolbox_update_0.3.1.sha256
+          if git diff --cached --quiet; then
+            echo 'No release changes to publish.'
+          else
+            git commit -m 'Build Local Toolbox 0.3.1 update package'
+            git push
+          fi

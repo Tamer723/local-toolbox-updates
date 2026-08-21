@@ -1,0 +1,121 @@
+name: Build Local Toolbox 0.4.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'sources/0.4.0/**'
+      - '.github/workflows/build-0.4.0.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: local-toolbox-0.4.0-publisher
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Reconstruct and verify source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat sources/0.4.0/source.b64.* | base64 --decode > /tmp/localtoolbox-040-source.zip
+          echo '9bfdcacfc99d6f8a17d9d4cd1b1a35b53450b81ea4e48a725c0155d850606aae  /tmp/localtoolbox-040-source.zip' | sha256sum -c -
+          mkdir -p /tmp/lt040
+          unzip -q /tmp/localtoolbox-040-source.zip -d /tmp/lt040
+          test -f /tmp/lt040/helper-src/main.go
+          test -f /tmp/lt040/extension/manifest.json
+          python - <<'PY'
+          import json
+          m=json.load(open('/tmp/lt040/extension/manifest.json', encoding='utf-8'))
+          assert m['version']=='0.4.0', m['version']
+          print('Extension version:', m['version'])
+          PY
+
+      - name: Build Windows helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/lt040/helper-src
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /tmp/local-toolbox-helper.exe .
+          test -s /tmp/local-toolbox-helper.exe
+
+      - name: Build self-update package and feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/package
+          mkdir -p /tmp/package/payload/extension releases
+          cp /tmp/local-toolbox-helper.exe /tmp/package/payload/local-toolbox-helper.exe
+          cp -a /tmp/lt040/extension/. /tmp/package/payload/extension/
+          cd /tmp/package
+          zip -q -r "$GITHUB_WORKSPACE/releases/LocalToolbox_update_0.4.0.zip" payload
+          cd "$GITHUB_WORKSPACE"
+          SHA=$(sha256sum releases/LocalToolbox_update_0.4.0.zip | awk '{print $1}')
+          SIZE=$(stat -c%s releases/LocalToolbox_update_0.4.0.zip)
+          cat > latest.json <<EOF
+          {
+            "version": "0.4.0",
+            "published_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "notes": [
+              "Smart Media Detector لاكتشاف الوسائط من الصفحة وطلبات الشبكة تلقائياً",
+              "دعم MP4 وWebM والصوت المباشر وHLS m3u8 وDASH mpd",
+              "Badge بعدد الوسائط المكتشفة وقائمة تنزيل مباشرة داخل Side Panel",
+              "تحديث Local Helper لمعالجة الوسائط المكتشفة عبر yt-dlp وFFmpeg",
+              "الحفاظ على Queue والسرعة وETA وفتح مكان الملف ونظام التحديث الذاتي"
+            ],
+            "package_url": "https://raw.githubusercontent.com/Tamer723/local-toolbox-updates/main/releases/LocalToolbox_update_0.4.0.zip",
+            "sha256": "$SHA",
+            "size": $SIZE
+          }
+          EOF
+          echo "$SHA  LocalToolbox_update_0.4.0.zip" > releases/LocalToolbox_update_0.4.0.sha256
+
+      - name: Verify package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, hashlib, zipfile, pathlib
+          root=pathlib.Path('.')
+          meta=json.load(open('latest.json', encoding='utf-8'))
+          p=root/'releases'/'LocalToolbox_update_0.4.0.zip'
+          data=p.read_bytes()
+          assert len(data)==meta['size']
+          assert hashlib.sha256(data).hexdigest()==meta['sha256']
+          with zipfile.ZipFile(p) as z:
+              names=set(z.namelist())
+              assert 'payload/extension/manifest.json' in names
+              assert 'payload/local-toolbox-helper.exe' in names
+              manifest=json.loads(z.read('payload/extension/manifest.json'))
+              assert manifest['version']=='0.4.0'
+          print('Update package verified:', meta['sha256'], meta['size'])
+          PY
+
+      - name: Publish update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'local-toolbox-build'
+          git config user.email 'actions@users.noreply.github.com'
+          git add latest.json releases/LocalToolbox_update_0.4.0.zip releases/LocalToolbox_update_0.4.0.sha256
+          if git diff --cached --quiet; then
+            echo 'No release changes to publish.'
+          else
+            git commit -m 'Publish Local Toolbox 0.4.0 [skip ci]'
+            git push
+          fi

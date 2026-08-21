@@ -1,0 +1,14 @@
+{
+  "version": "0.3.0",
+  "published_at": "2026-08-21T04:38:00+03:00",
+  "notes": [
+    "إضافة نظام تحديث بضغطة واحدة",
+    "فحص تلقائي للتحديثات كل 12 ساعة",
+    "التحقق من SHA-256 قبل التثبيت",
+    "نسخة احتياطية ومحاولة استرجاع عند فشل الاستبدال",
+    "إعادة تحميل الإضافة والاتصال بالـHelper تلقائيًا بعد التحديث"
+  ],
+  "package_url": "https://raw.githubusercontent.com/Tamer723/local-toolbox-updates/main/releases/LocalToolbox_update_0.3.0.zip",
+  "sha256": "1a90906e44cc3d74ff120c4de333ffdc90154a95b9cd5482db68a36721e50f68",
+  "size": 2633412
+}

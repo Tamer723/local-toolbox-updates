@@ -1,11 +1,14 @@
 {
-  "version": "0.3.1",
-  "published_at": "2026-08-21T03:23:53Z",
+  "version": "0.4.0",
+  "published_at": "2026-08-21T22:41:43Z",
   "notes": [
-    "اختبار أول تحديث آلي مبني بالكامل داخل GitHub",
-    "هذا الإصدار يختبر التنزيل والتحقق من الحجم وSHA-256 والتثبيت وإعادة تحميل الإضافة"
+    "Smart Media Detector لاكتشاف الوسائط من الصفحة وطلبات الشبكة تلقائياً",
+    "دعم MP4 وWebM والصوت المباشر وHLS m3u8 وDASH mpd",
+    "Badge بعدد الوسائط المكتشفة وقائمة تنزيل مباشرة داخل Side Panel",
+    "تحديث Local Helper لمعالجة الوسائط المكتشفة عبر yt-dlp وFFmpeg",
+    "الحفاظ على Queue والسرعة وETA وفتح مكان الملف ونظام التحديث الذاتي"
   ],
-  "package_url": "https://raw.githubusercontent.com/Tamer723/local-toolbox-updates/main/releases/LocalToolbox_update_0.3.1.zip",
-  "sha256": "efa0c3be90eb4a14a7a48a716b43e35f9362084df125c50ea1a71b4827354f2f",
-  "size": 945
+  "package_url": "https://raw.githubusercontent.com/Tamer723/local-toolbox-updates/main/releases/LocalToolbox_update_0.4.0.zip",
+  "sha256": "42e5c4abd77b491dc43e20d7f2c184f966041c29a704c18b1fd6a51deb19a22c",
+  "size": 2654370
 }

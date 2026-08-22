@@ -655,36 +655,71 @@ func probeDuration(ffprobePath, input string) (float64, error) {
 
 type laneScheduler struct {
 	mu      sync.Mutex
-	cond    *sync.Cond
 	running int
+	limit   int
+	queued  []*scheduledJob
+	active  map[string]bool
 }
 
-func newLaneScheduler() *laneScheduler {
-	l := &laneScheduler{}
-	l.cond = sync.NewCond(&l.mu)
-	return l
+type scheduledJob struct {
+	id        string
+	run       func()
+	cancelled func()
 }
 
-func (l *laneScheduler) run(limit int, fn func()) {
+func newLaneScheduler() *laneScheduler { return &laneScheduler{active: map[string]bool{}} }
+
+func (l *laneScheduler) enqueue(id string, limit int, fn, cancelled func()) {
 	if limit < 1 {
 		limit = 1
 	}
-	go func() {
-		l.mu.Lock()
-		for l.running >= limit {
-			l.cond.Wait()
-		}
-		l.running++
-		l.mu.Unlock()
+	l.mu.Lock()
+	l.limit = limit
+	l.queued = append(l.queued, &scheduledJob{id: id, run: fn, cancelled: cancelled})
+	l.dispatchLocked()
+	l.mu.Unlock()
+}
 
-		defer func() {
-			l.mu.Lock()
-			l.running--
-			l.cond.Broadcast()
-			l.mu.Unlock()
+func (l *laneScheduler) dispatchLocked() {
+	for l.running < l.limit && len(l.queued) > 0 {
+		job := l.queued[0]
+		l.queued = l.queued[1:]
+		l.running++
+		l.active[job.id] = true
+		go func() {
+			defer func() {
+				l.mu.Lock()
+				l.running--
+				delete(l.active, job.id)
+				l.dispatchLocked()
+				l.mu.Unlock()
+			}()
+			job.run()
 		}()
-		fn()
-	}()
+	}
+}
+
+func (l *laneScheduler) isActive(id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.active[id]
+}
+
+func (l *laneScheduler) cancel(id string) bool {
+	l.mu.Lock()
+	for i, job := range l.queued {
+		if job.id != id {
+			continue
+		}
+		l.queued = append(l.queued[:i], l.queued[i+1:]...)
+		l.mu.Unlock()
+		if job.cancelled != nil {
+			job.cancelled()
+		}
+		return true
+	}
+	l.mu.Unlock()
+	return false
 }
 
 type jobManager struct {
@@ -706,18 +741,18 @@ func newJobManager() *jobManager {
 	}
 }
 
-func (jm *jobManager) enqueueDownload(limit int, fn func()) {
+func (jm *jobManager) enqueueDownload(jobID string, limit int, fn, cancelled func()) {
 	if limit < 1 || limit > 4 {
 		limit = 2
 	}
-	jm.downloads.run(limit, fn)
+	jm.downloads.enqueue(jobID, limit, fn, cancelled)
 }
 
-func (jm *jobManager) enqueueProcessing(limit int, fn func()) {
+func (jm *jobManager) enqueueProcessing(jobID string, limit int, fn, cancelled func()) {
 	if limit < 1 || limit > 2 {
 		limit = 1
 	}
-	jm.processing.run(limit, fn)
+	jm.processing.enqueue(jobID, limit, fn, cancelled)
 }
 
 func (jm *jobManager) setCommand(jobID string, cmd *exec.Cmd) {
@@ -743,16 +778,27 @@ func (jm *jobManager) clearCommand(jobID string) {
 	jm.mu.Unlock()
 }
 func (jm *jobManager) cancel(jobID string) bool {
+	if jm.downloads.cancel(jobID) || jm.processing.cancel(jobID) {
+		return true
+	}
+	scheduled := jm.downloads.isActive(jobID) || jm.processing.isActive(jobID)
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
-	jm.cancelled[jobID] = true
+	active := scheduled
+	if scheduled {
+		jm.cancelled[jobID] = true
+	}
 	if cancel := jm.cancels[jobID]; cancel != nil {
+		active = true
+		jm.cancelled[jobID] = true
 		cancel()
 	}
 	if cmd := jm.commands[jobID]; cmd != nil && cmd.Process != nil {
+		active = true
+		jm.cancelled[jobID] = true
 		_ = cmd.Process.Kill()
 	}
-	return true
+	return active
 }
 func (jm *jobManager) isCancelled(jobID string) bool {
 	jm.mu.Lock()
@@ -1671,17 +1717,26 @@ func main() {
 			go fetchMediaInfo(nw, req, s)
 		case "convert_mp3":
 			_ = nw.send(Response{Event: "queued", JobID: req.JobID, Kind: "convert_mp3", Message: "في انتظار مسار المعالجة المحلي.", Stage: "انتظار", Version: version})
-			jm.enqueueProcessing(s.MaxConcurrentProcessing, func() { runFFmpegConvert(nw, jm, req, s) })
+			jm.enqueueProcessing(req.JobID, s.MaxConcurrentProcessing, func() { runFFmpegConvert(nw, jm, req, s) }, func() {
+				_ = nw.send(Response{Event: "cancelled", JobID: req.JobID, Kind: "convert_mp3", Message: "تم إلغاء المهمة قبل بدء المعالجة.", Version: version})
+			})
 		case "download_video", "download_audio", "download_thumbnail", "download_subtitles", "download_stream", "extract_detected_audio":
 			kind := req.Action
 			_ = nw.send(Response{Event: "queued", JobID: req.JobID, Kind: kind, Message: "في انتظار مسار التنزيل.", Stage: "انتظار", Version: version})
-			jm.enqueueDownload(s.MaxConcurrentDownloads, func() { runYTDLPJob(nw, jm, req, s, kind) })
+			jm.enqueueDownload(req.JobID, s.MaxConcurrentDownloads, func() { runYTDLPJob(nw, jm, req, s, kind) }, func() {
+				_ = nw.send(Response{Event: "cancelled", JobID: req.JobID, Kind: kind, Message: "تم إلغاء المهمة قبل بدء التنزيل.", Version: version})
+			})
 		case "download_detected":
 			_ = nw.send(Response{Event: "queued", JobID: req.JobID, Kind: "download_detected", Message: "في انتظار التنزيل المباشر.", Stage: "انتظار", Version: version})
-			jm.enqueueDownload(s.MaxConcurrentDownloads, func() { runHTTPDownload(nw, jm, req, s) })
+			jm.enqueueDownload(req.JobID, s.MaxConcurrentDownloads, func() { runHTTPDownload(nw, jm, req, s) }, func() {
+				_ = nw.send(Response{Event: "cancelled", JobID: req.JobID, Kind: "download_detected", Message: "تم إلغاء المهمة قبل بدء التنزيل.", Version: version})
+			})
 		case "cancel_job":
-			jm.cancel(req.JobID)
-			_ = nw.send(Response{ID: req.ID, Event: "cancel_requested", JobID: req.JobID, Message: "تم طلب إلغاء المهمة.", Version: version})
+			if jm.cancel(req.JobID) {
+				_ = nw.send(Response{ID: req.ID, Event: "cancel_requested", JobID: req.JobID, Message: "تم طلب إلغاء المهمة.", Version: version})
+			} else {
+				_ = nw.send(Response{ID: req.ID, Event: "error", JobID: req.JobID, Message: "المهمة غير موجودة أو انتهت بالفعل.", Version: version})
+			}
 		case "check_update":
 			go handleCheckUpdate(nw, req, s)
 		case "apply_update":

@@ -2,13 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func responses(t *testing.T, b []byte) []Response {
@@ -28,6 +32,87 @@ func responses(t *testing.T, b []byte) []Response {
 		b = b[n:]
 	}
 	return out
+}
+
+func TestDownloadLaneHonorsConcurrencyLimit(t *testing.T) {
+	jm := newJobManager()
+	release := make(chan struct{})
+	started := make(chan struct{}, 4)
+	var running atomic.Int32
+	var maximum atomic.Int32
+	var done sync.WaitGroup
+	done.Add(4)
+	for i := 0; i < 4; i++ {
+		jm.enqueueDownload(string(rune('a'+i)), 2, func() {
+			current := running.Add(1)
+			for old := maximum.Load(); current > old && !maximum.CompareAndSwap(old, current); old = maximum.Load() {
+			}
+			started <- struct{}{}
+			<-release
+			running.Add(-1)
+			done.Done()
+		}, nil)
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("download lane did not start available work")
+		}
+	}
+	select {
+	case <-started:
+		t.Fatal("download lane exceeded its concurrency limit")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	done.Wait()
+	if maximum.Load() != 2 {
+		t.Fatalf("maximum concurrent jobs = %d, want 2", maximum.Load())
+	}
+}
+
+func TestQueuedCancellationRemovesJobWithoutStartingIt(t *testing.T) {
+	jm := newJobManager()
+	release := make(chan struct{})
+	started := make(chan struct{})
+	jm.enqueueProcessing("running", 1, func() { close(started); <-release }, nil)
+	<-started
+
+	var ran atomic.Bool
+	cancelled := make(chan struct{})
+	jm.enqueueProcessing("queued", 1, func() { ran.Store(true) }, func() { close(cancelled) })
+	if !jm.cancel("queued") {
+		t.Fatal("queued job was not found")
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("queued cancellation was not reported promptly")
+	}
+	close(release)
+	time.Sleep(50 * time.Millisecond)
+	if ran.Load() {
+		t.Fatal("cancelled queued job started")
+	}
+}
+
+func TestCancellingUnknownJobDoesNotPoisonFutureJobID(t *testing.T) {
+	jm := newJobManager()
+	if jm.cancel("reused") {
+		t.Fatal("unknown cancellation reported success")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	jm.setCancelFunc("reused", cancel)
+	defer jm.clearCancelFunc("reused")
+	if jm.isCancelled("reused") {
+		t.Fatal("unknown cancellation leaked into future job")
+	}
+	select {
+	case <-ctx.Done():
+		t.Fatal("future job context was cancelled")
+	default:
+	}
 }
 
 func TestDirectDownloadCompletesOnlyAfterFileFinalized(t *testing.T) {

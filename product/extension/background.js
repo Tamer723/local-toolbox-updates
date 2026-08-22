@@ -1,5 +1,5 @@
 importScripts('contracts.js', 'media-detection.js');
-const {Protocol, JobState, NativeCommand, NativeEvent, nativeRequest, progressEvent, job:contractJob, mediaItem} = LocalToolboxContracts;
+const {Protocol, JobState, NativeCommand, NativeEvent, nativeRequest, reduceJobEvent, mediaItem} = LocalToolboxContracts;
 const MediaDetection = LocalToolboxMediaDetection;
 const HOST = 'com.localtoolbox.helper';
 const ACTIVE_JOBS_KEY = 'activeJobsV2';
@@ -268,8 +268,7 @@ function connect() {
       }
       if (message.jobId) {
         const old = jobs.get(message.jobId) || { id: message.jobId, jobId:message.jobId, kind: message.kind, createdAt: Date.now() };
-        const normalized = progressEvent(message);
-        const updated = contractJob({ ...old, ...normalized, id:message.jobId, jobId:message.jobId, updatedAt: Date.now() });
+        const updated = reduceJobEvent(old, { ...message, id:message.jobId, jobId:message.jobId, updatedAt:Date.now() });
         jobs.set(message.jobId, updated);
         await persistJobs().catch(()=>{});
         if (['complete', 'error', 'cancelled'].includes(message.event)) {

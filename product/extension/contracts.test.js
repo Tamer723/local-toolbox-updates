@@ -23,3 +23,23 @@ test('progress reaches 100 only for completed jobs', () => {
 test('persistent job contract has explicit interrupted state', () => {
   assert.equal(c.job({jobId:'x',state:c.JobState.INTERRUPTED,progress:100}).progress,99.5);
 });
+
+test('cancel acknowledgement preserves the current canonical state and progress', () => {
+  const downloading = c.reduceJobEvent(
+    {jobId:'x',event:'progress',state:c.JobState.DOWNLOADING,progress:64},
+    {jobId:'x',event:c.NativeEvent.CANCEL_REQUESTED,progress:0}
+  );
+  assert.equal(downloading.event,c.NativeEvent.CANCEL_REQUESTED);
+  assert.equal(downloading.state,c.JobState.DOWNLOADING);
+  assert.equal(downloading.progress,64);
+});
+
+test('late cancel acknowledgement cannot regress a cancelled job', () => {
+  const cancelled = c.reduceJobEvent(
+    {jobId:'x',event:c.NativeEvent.CANCELLED,state:c.JobState.CANCELLED,progress:42},
+    {jobId:'x',event:c.NativeEvent.CANCEL_REQUESTED,progress:0}
+  );
+  assert.equal(cancelled.event,c.NativeEvent.CANCELLED);
+  assert.equal(cancelled.state,c.JobState.CANCELLED);
+  assert.equal(cancelled.progress,42);
+});

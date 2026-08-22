@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,6 +55,45 @@ func TestDirectDownloadCompletesOnlyAfterFileFinalized(t *testing.T) {
 		if e.Progress >= 100 {
 			t.Fatalf("premature 100%%: %+v", e)
 		}
+	}
+}
+
+func TestDirectDownloadScopesCookiesToRequest(t *testing.T) {
+	u := "https://media.example.com/video/item.mp4"
+	host := "media.example.com"
+	cookies := []BrowserCookie{
+		{Domain: host, Path: "/video", Secure: true, HostOnly: true, Name: "allowed", Value: "yes"},
+		{Domain: host, Path: "/account", Secure: true, HostOnly: true, Name: "wrong_path", Value: "no"},
+		{Domain: "unrelated.test", Path: "/", Secure: true, Name: "wrong_domain", Value: "no"},
+		{Domain: host, Path: "/", Secure: true, HostOnly: true, Name: "bad", Value: "line\nbreak"},
+	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cookieHeader(cookies, parsed); got != "allowed=yes" {
+		t.Fatalf("scoped cookie header = %q", got)
+	}
+
+	// runHTTPDownload uses its own client, so use its plain-HTTP equivalent to
+	// verify that Secure cookies are not sent over an insecure transport.
+	plain, _ := url.Parse("http://" + parsed.Host + parsed.Path)
+	if got := cookieHeader(cookies, plain); got != "" {
+		t.Fatalf("secure cookie leaked over HTTP: %q", got)
+	}
+}
+
+func TestDirectDownloadReportsStructuredHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer srv.Close()
+	var wire bytes.Buffer
+	runHTTPDownload(&nativeWriter{w: &wire}, newJobManager(), Request{DownloadRequest: DownloadRequest{JobID: "denied", URL: srv.URL}}, Settings{OutputDir: t.TempDir()})
+	events := responses(t, wire.Bytes())
+	last := events[len(events)-1]
+	if last.Event != "error" || last.Error == nil || last.Error.Code != ErrorHTTP403 || last.Error.HTTPStatus != http.StatusForbidden || !last.Error.Retryable {
+		t.Fatalf("unexpected 403 response: %+v", last)
 	}
 }
 

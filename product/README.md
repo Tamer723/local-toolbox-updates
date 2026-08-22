@@ -21,4 +21,6 @@ Credentials are ephemeral: cookies are sent only with the active native request,
 
 ## Candidate build
 
-Run `./build-candidate.sh`. It creates a reproducible un-published candidate under `dist/`; it does not touch the production `latest.json` or `releases/` feed.
+Run `../scripts/release-candidate-gate.sh` from this directory (or `scripts/release-candidate-gate.sh` from the repository root) for the complete automated regression gate. It creates a reproducible unpublished candidate under `build/candidate/`, verifies its contents, size, and SHA-256, and confirms the working tree has not changed the production `latest.json` or `releases/` feed.
+
+The required real Windows/Chrome checks and sign-off fields are in `docs/manual-acceptance-0.5.0.md`.

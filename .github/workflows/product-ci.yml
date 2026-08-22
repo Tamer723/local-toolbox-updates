@@ -44,64 +44,6 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Validate JSON
-        shell: python
-        run: |
-          import json, pathlib
-          files = list(pathlib.Path('product').rglob('*.json'))
-          for path in files:
-              json.loads(path.read_text(encoding='utf-8'))
-          manifest = json.loads(pathlib.Path('product/extension/manifest.json').read_text(encoding='utf-8'))
-          assert manifest['version'] == '0.5.0', manifest['version']
-          print(f'validated {len(files)} JSON files; extension={manifest["version"]}')
-
-      - name: JavaScript syntax and tests
+      - name: Run integrated release-candidate regression gate
         shell: bash
-        run: |
-          set -euo pipefail
-          find product/extension -maxdepth 1 -name '*.js' -print0 | while IFS= read -r -d '' f; do node --check "$f"; done
-          node --test product/extension/*.test.js
-
-      - name: Go tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          (cd product/helper-src && go test ./...)
-          (cd product/updater-src && go test ./...)
-
-      - name: Cross-build Windows binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          (cd product/helper-src && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /tmp/local-toolbox-helper.exe .)
-          (cd product/updater-src && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /tmp/local-toolbox-updater-v2.exe .)
-          test -s /tmp/local-toolbox-helper.exe
-          test -s /tmp/local-toolbox-updater-v2.exe
-
-      - name: Build and verify unpublished candidate
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash product/build-candidate.sh
-          python - <<'PY'
-          import hashlib, json, pathlib, zipfile
-          p = pathlib.Path('product/build/candidate/LocalToolbox_update_0.5.0-rc.zip')
-          assert p.is_file() and p.stat().st_size > 0
-          data = p.read_bytes()
-          sha = hashlib.sha256(data).hexdigest()
-          sha_file = pathlib.Path('product/build/candidate/LocalToolbox_update_0.5.0-rc.sha256').read_text().strip().split()[0]
-          assert sha == sha_file, (sha, sha_file)
-          with zipfile.ZipFile(p) as z:
-              names = set(z.namelist())
-              for required in [
-                  'payload/extension/manifest.json',
-                  'payload/extension/contracts.js',
-                  'payload/local-toolbox-helper.exe',
-                  'payload/local-toolbox-updater-v2.exe',
-              ]:
-                  assert required in names, required
-              assert 'payload/local-toolbox-updater.exe' not in names, 'legacy updater must not be replaced by 0.5.0 package'
-              manifest = json.loads(z.read('payload/extension/manifest.json'))
-              assert manifest['version'] == '0.5.0'
-          print('candidate bytes=', len(data), 'sha256=', sha)
-          PY
+        run: scripts/release-candidate-gate.sh

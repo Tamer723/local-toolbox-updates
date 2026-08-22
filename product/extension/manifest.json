@@ -66,6 +66,7 @@
       ],
       "js": [
         "contracts.js",
+        "media-detection.js",
         "media-detector.js"
       ],
       "run_at": "document_idle",

@@ -1,6 +1,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const {Protocol, JobState, NativeCommand, NativeEvent, job:contractJob, downloadRequest} = LocalToolboxContracts;
+const {jobPresentation} = LocalToolboxUILogic;
 
 const state = {
   connected: false,
@@ -156,7 +157,7 @@ async function enqueueBatch() {
     const request = {action:'download_video', url, playlist};
     state.jobs.set(id,{id,jobId:id,kind:'download_video',event:'queued',message:'في قائمة الانتظار',request,createdAt:Date.now()});
     const result = await native('download_video',{jobId:id,url,playlist,quality:state.settings.defaultVideoQuality,cookies:ctx.cookies,userAgent:ctx.userAgent});
-    if (result?.ok) queued++; else state.jobs.set(id,{...state.jobs.get(id),event:'error',message:result?.error || 'تعذر إضافة المهمة'});
+    if (result?.ok) queued++; else state.jobs.set(id,contractJob({...state.jobs.get(id),event:'error',state:JobState.FAILED,message:result?.error || 'تعذر إضافة المهمة'}));
   }
   renderJobs();
   $('#batchStatus').textContent = `تمت إضافة ${queued} من ${urls.length} مهمة.`;
@@ -603,12 +604,12 @@ function currentUrl() {
 async function startJob(action, extra = {}) {
   const jobId = crypto.randomUUID();
   const request = { action, ...Object.fromEntries(Object.entries(extra).filter(([k]) => !['cookies','userAgent'].includes(k))) };
-  const job = { id: jobId, jobId, kind: action, event: 'queued', progress: 0, message: 'في قائمة الانتظار', request, createdAt: Date.now() };
+  const job = contractJob({ id: jobId, jobId, kind: action, event: 'queued', progress: 0, message: 'في قائمة الانتظار', request, createdAt: Date.now() });
   state.jobs.set(jobId, job); renderJobs();
   toast('بدأت المهمة — يمكنك متابعتها من تبويب المهام');
   const r = await native(action, { jobId, ...extra });
   if (!r?.ok) {
-    state.jobs.set(jobId, { ...job, event: 'error', message: r?.error || 'تعذر بدء المهمة' });
+    state.jobs.set(jobId, contractJob({ ...job, event: 'error', state: JobState.FAILED, message: r?.error || 'تعذر بدء المهمة' }));
     renderJobs();
   }
 }
@@ -655,13 +656,14 @@ function renderJobs() {
   if (!items.length) { el.className='stack-list empty-state'; el.textContent='لا توجد مهام قيد التنفيذ.'; return; }
   el.className='stack-list';
   el.innerHTML = items.map(j => {
-    const p = Math.max(0, Math.min(100, Number(j.progress)||0));
-    const done = ['complete','error','cancelled'].includes(j.event);
-    const isError = j.event === 'error';
-    const isCancelled = j.event === 'cancelled';
+    const view = jobPresentation(j);
+    const p = view.progress;
+    const done = view.terminal;
+    const isError = view.failed;
+    const isCancelled = view.cancelled;
     const details = j.details || (isError ? j.message : '');
     const status = j.message || stateText(j.state);
-    const percentLabel = isError ? 'فشل' : (isCancelled ? 'ملغي' : `${Math.round(p)}%`);
+    const percentLabel = view.percentLabel;
 
     const metrics = [];
     if (Number(j.speedBytes) > 0) metrics.push(['السرعة', formatSpeed(j.speedBytes)]);
@@ -687,10 +689,10 @@ function renderJobs() {
       ${metrics.length ? `<div class="job-metrics">${metrics.map(([k,v])=>`<div><span>${escapeHtml(k)}</span><strong dir="ltr">${escapeHtml(v)}</strong></div>`).join('')}</div>` : ''}
       ${details ? `<details class="job-details"><summary>التفاصيل التقنية</summary><pre>${escapeHtml(details)}</pre></details>` : ''}
       <div class="job-actions">
-        ${j.path && j.event==='complete' ? `<button class="tiny-btn primary-tiny" data-open="${escapeHtml(j.path)}">فتح مكان الملف</button>`:''}
-        ${!done ? `<button class="tiny-btn" data-cancel="${escapeHtml(j.id||j.jobId)}">إلغاء</button>`:''}
-        ${(isError || isCancelled) && j.request ? `<button class="tiny-btn primary-tiny" data-retry="${escapeHtml(j.id||j.jobId)}">إعادة المحاولة</button>`:''}
-        ${(isError || isCancelled) ? `<button class="tiny-btn" data-dismiss="${escapeHtml(j.id||j.jobId)}">إزالة</button>`:''}
+        ${j.path && view.state===JobState.COMPLETED ? `<button class="tiny-btn primary-tiny" data-open="${escapeHtml(j.path)}">فتح مكان الملف</button>`:''}
+        ${view.cancellable ? `<button class="tiny-btn" data-cancel="${escapeHtml(j.id||j.jobId)}">إلغاء</button>`:''}
+        ${view.retryable ? `<button class="tiny-btn primary-tiny" data-retry="${escapeHtml(j.id||j.jobId)}">إعادة المحاولة</button>`:''}
+        ${(isError || isCancelled || view.interrupted) ? `<button class="tiny-btn" data-dismiss="${escapeHtml(j.id||j.jobId)}">إزالة</button>`:''}
       </div>
     </div>`;
   }).join('');
@@ -849,7 +851,7 @@ chrome.runtime.onMessage.addListener((m) => {
     setUpdateProgress(100, 'اكتمل', `تم تثبيت ${m.version || 'الإصدار الجديد'}. جارٍ إعادة تحميل الواجهة…`);
   } else if (['queued','job_started','progress','complete','error','cancelled','cancel_requested'].includes(m.event) && m.jobId) {
     const old = state.jobs.get(m.jobId) || { id:m.jobId, jobId:m.jobId, kind:m.kind, createdAt:Date.now() };
-    const next = {...old,...m,id:m.jobId,updatedAt:Date.now()};
+    const next = contractJob({...old,...m,state:m.state || undefined,id:m.jobId,updatedAt:Date.now()});
     if (m.event === 'error') next.progress = Math.min(Number(old.progress)||0, 95);
     if (m.event === 'complete') next.progress = 100;
     state.jobs.set(m.jobId,next); renderJobs();

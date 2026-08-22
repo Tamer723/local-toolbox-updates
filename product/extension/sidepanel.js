@@ -540,6 +540,7 @@ function renderDetectedMedia() {
   card.classList.remove('hidden');
   list.innerHTML = items.slice(0,16).map((item,i) => {
     const stream = item.kind === 'hls' || item.kind === 'dash';
+    const protectedMedia = !!item.protected;
     return `<div class="detected-item">
       <div class="detected-top">
         <div class="detected-main">
@@ -548,12 +549,12 @@ function renderDetectedMedia() {
             <span class="media-chip ${stream?'stream':''}">${escapeHtml(detectedLabel(item))}</span>
             <span class="media-chip">${escapeHtml(item.source||'page')}</span>
           </div>
-          <div class="detected-source">${stream ? 'يحتاج معالجة وتجميع محلي' : 'رابط ملف مباشر مكتشف من الصفحة/الشبكة'}</div>
+          <div class="detected-source">${protectedMedia ? 'وسائط محمية — التنزيل غير مدعوم' : (stream ? 'يحتاج معالجة وتجميع محلي' : 'رابط ملف مباشر مكتشف من الصفحة/الشبكة')}</div>
         </div>
       </div>
       <div class="detected-actions">
-        <button class="primary-tiny" data-detected-download="${i}">${stream ? 'معالجة وتنزيل' : 'تنزيل مباشر'}</button>
-        <button data-detected-mp3="${i}">MP3</button>
+        <button class="primary-tiny" data-detected-download="${i}" ${protectedMedia?'disabled':''}>${stream ? 'معالجة وتنزيل' : 'تنزيل مباشر'}</button>
+        <button data-detected-mp3="${i}" ${protectedMedia?'disabled':''}>MP3</button>
       </div>
     </div>`;
   }).join('');
@@ -582,6 +583,7 @@ function filenameHint(item) {
 async function startDetectedAction(index, mode) {
   const item = state.detectedMedia[index];
   if (!item?.url) return toast('عنصر الوسائط لم يعد متاحًا.', 'bad');
+  if (item.protected) return toast('هذه الوسائط محمية ولا يدعم Local Toolbox تنزيلها.', 'bad');
   const ctx = state.settings.browserSession === 'auto' ? await getSiteContext(item.url) : {cookies:[],userAgent:navigator.userAgent};
   const common = {
     url:item.url,

@@ -1,46 +1,17 @@
 (() => {
   const {mediaItem} = LocalToolboxContracts;
-  const DIRECT_EXTS = new Set(['mp4','webm','mov','m4v','mp3','m4a','aac','ogg','opus','wav','flac']);
-  const STREAM_EXTS = new Set(['m3u8','mpd']);
+  const MediaDetection = LocalToolboxMediaDetection;
   const seen = new Map();
   let sendTimer = null;
 
   function normalize(raw) {
     try {
-      const u = new URL(String(raw || '').trim(), location.href);
-      if (!/^https?:$/.test(u.protocol)) return '';
-      return u.href;
+      return MediaDetection.parsedURL(raw, location.href)?.href || '';
     } catch { return ''; }
   }
 
   function canonical(raw) {
-    try {
-      const u = new URL(raw);
-      u.hash = '';
-      for (const key of [...u.searchParams.keys()]) {
-        if (/^(utm_|fbclid$|gclid$|token$|expires$|signature$|policy$|key-pair-id$)/i.test(key)) u.searchParams.delete(key);
-      }
-      return u.href;
-    } catch { return raw; }
-  }
-
-  function extOf(raw) {
-    try {
-      const p = new URL(raw).pathname.toLowerCase();
-      const m = p.match(/\.([a-z0-9]{2,5})$/i);
-      return m ? m[1] : '';
-    } catch { return ''; }
-  }
-
-  function classify(url, contentType='') {
-    const ext = extOf(url);
-    const ct = String(contentType || '').toLowerCase();
-    if (STREAM_EXTS.has(ext) || ct.includes('mpegurl')) return {kind:'hls', ext:ext || 'm3u8'};
-    if (ext === 'mpd' || ct.includes('dash+xml')) return {kind:'dash', ext:'mpd'};
-    if (DIRECT_EXTS.has(ext)) return {kind:'direct', ext};
-    if (ct.startsWith('video/')) return {kind:'direct', ext:ct.split('/')[1].split(';')[0] || 'video'};
-    if (ct.startsWith('audio/')) return {kind:'direct', ext:ct.split('/')[1].split(';')[0] || 'audio'};
-    return null;
+    return MediaDetection.identity(raw);
   }
 
   function queueSend() {
@@ -58,26 +29,27 @@
     }
     const url = normalize(raw);
     if (!url) return;
-    const c = classify(url, meta.contentType || '');
+    const c = MediaDetection.classify(url, meta.contentType || '');
     if (!c) return;
-    if (/\.(?:m4s|ts|cmfv|cmfa)(?:$|\?)/i.test(url)) return;
+    if (MediaDetection.isSegment(url)) return;
     if (Number(meta.size) > 0 && Number(meta.size) < 32768 && c.kind === 'direct') return;
     const key = canonical(url);
     const old = seen.get(key) || {};
+    const inferred = MediaDetection.infer(url, meta);
     const item = mediaItem({
       url,
       kind:c.kind,
       ext:c.ext,
       source:meta.source || old.source || 'page',
       contentType:meta.contentType || old.contentType || '',
-      width:Number(meta.width || old.width || 0),
-      height:Number(meta.height || old.height || 0),
+      width:inferred.width, height:inferred.height, bitrate:inferred.bitrate,
+      size:inferred.size, sizeExact:inferred.sizeExact,
       label:meta.label || old.label || '',
       pageUrl:location.href,
       title:document.title,
-      firstSeen:old.firstSeen || Date.now(), directSafe:c.kind === 'direct', protected:false
+      firstSeen:old.firstSeen || Date.now(), directSafe:c.kind === 'direct' && !meta.protected, protected:!!meta.protected
     });
-    seen.set(key,item);
+    seen.set(key,MediaDetection.merge(old,item));
     queueSend();
   }
 
@@ -85,9 +57,10 @@
     document.querySelectorAll('video,audio,source').forEach(el => {
       const tag = el.tagName.toLowerCase();
       const src = el.currentSrc || el.src || el.getAttribute('src');
-      if (src) add(src,{source:`dom:${tag}`, width:el.videoWidth||0, height:el.videoHeight||0});
+      const protectedMedia = !!el.mediaKeys;
+      if (src) add(src,{source:`dom:${tag}`, width:el.videoWidth||0, height:el.videoHeight||0, protected:protectedMedia});
       if (tag === 'video') {
-        el.querySelectorAll('source[src]').forEach(s=>add(s.src || s.getAttribute('src'),{source:'dom:source',contentType:s.type||'',width:el.videoWidth||0,height:el.videoHeight||0}));
+        el.querySelectorAll('source[src]').forEach(s=>add(s.src || s.getAttribute('src'),{source:'dom:source',contentType:s.type||'',width:el.videoWidth||0,height:el.videoHeight||0,protected:protectedMedia}));
       }
     });
     const metaSelectors = [

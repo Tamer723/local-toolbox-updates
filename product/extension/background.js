@@ -1,5 +1,6 @@
-importScripts('contracts.js');
+importScripts('contracts.js', 'media-detection.js');
 const {Protocol, JobState, NativeCommand, NativeEvent, nativeRequest, progressEvent, job:contractJob, mediaItem} = LocalToolboxContracts;
+const MediaDetection = LocalToolboxMediaDetection;
 const HOST = 'com.localtoolbox.helper';
 const ACTIVE_JOBS_KEY = 'activeJobsV2';
 let port = null;
@@ -75,22 +76,11 @@ async function getSiteContext(rawUrl) {
 
 
 function mediaExt(rawUrl='') {
-  try {
-    const m = new URL(rawUrl).pathname.toLowerCase().match(/\.([a-z0-9]{2,5})$/i);
-    return m ? m[1] : '';
-  } catch { return ''; }
+  return MediaDetection.extension(rawUrl);
 }
 
 function classifyDetected(rawUrl='', contentType='') {
-  const ext = mediaExt(rawUrl);
-  const ct = String(contentType || '').toLowerCase();
-  const direct = new Set(['mp4','webm','mov','m4v','mp3','m4a','aac','ogg','opus','wav','flac']);
-  if (ext === 'm3u8' || ct.includes('mpegurl')) return {kind:'hls', ext:ext || 'm3u8'};
-  if (ext === 'mpd' || ct.includes('dash+xml')) return {kind:'dash', ext:'mpd'};
-  if (direct.has(ext)) return {kind:'direct', ext};
-  if (ct.startsWith('video/')) return {kind:'direct', ext:ct.split('/')[1].split(';')[0] || 'video'};
-  if (ct.startsWith('audio/')) return {kind:'direct', ext:ct.split('/')[1].split(';')[0] || 'audio'};
-  return null;
+  return MediaDetection.classify(rawUrl, contentType);
 }
 
 function normalizedDetectedItem(item={}) {
@@ -99,12 +89,13 @@ function normalizedDetectedItem(item={}) {
     if (!/^https?:$/.test(u.protocol)) return null;
     const c = classifyDetected(u.href, item.contentType || '');
     if (!c) return null;
+    const inferred = MediaDetection.infer(u.href, item);
     return mediaItem({
       url:u.href, kind:item.kind || c.kind, ext:item.ext || c.ext,
       source:item.source || 'network', contentType:item.contentType || '',
-      size:Number(item.size)||0, width:Number(item.width)||0, height:Number(item.height)||0,
+      size:inferred.size, sizeExact:inferred.sizeExact, width:inferred.width, height:inferred.height, bitrate:inferred.bitrate,
       label:item.label || '', pageUrl:item.pageUrl || '', title:item.title || '',
-      firstSeen:Number(item.firstSeen)||Date.now(), directSafe:c.kind === 'direct', protected:false
+      firstSeen:Number(item.firstSeen)||Date.now(), directSafe:c.kind === 'direct' && !item.protected, protected:!!item.protected
     });
   } catch { return null; }
 }
@@ -128,9 +119,9 @@ function recordDetected(tabId, rawItem) {
   const item = normalizedDetectedItem(rawItem);
   if (!item) return;
   const map = detectedByTab.get(tabId) || new Map();
-  const key = item.url.split('#')[0];
+  const key = MediaDetection.identity(item.url);
   const old = map.get(key) || {};
-  map.set(key, {...old, ...item, firstSeen:old.firstSeen || item.firstSeen});
+  map.set(key, MediaDetection.merge(old, item));
   while (map.size > MAX_DETECTED_PER_TAB) map.delete(map.keys().next().value);
   detectedByTab.set(tabId,map);
   updateMediaBadge(tabId);
@@ -415,11 +406,13 @@ try {
     const classified = classifyDetected(details.url, contentType);
     if (!classified) return;
     // Avoid noisy byte-range fragments; manifests are kept, final media files are kept.
-    const ext = mediaExt(details.url);
-    if (ext === 'm4s' || ext === 'ts') return;
+    if (MediaDetection.isSegment(details.url)) return;
+    const contentRange = headers['content-range'] || '';
+    const rangeTotal = Number(contentRange.match(/\/(\d+)\s*$/)?.[1]) || 0;
+    const contentLength = Number(headers['content-length']) || 0;
     recordDetected(details.tabId, {
       url:details.url, kind:classified.kind, ext:classified.ext, source:'network', contentType,
-      size:Number(headers['content-length']) || 0
+      size:rangeTotal || contentLength, sizeExact:!!rangeTotal || (!!contentLength && !contentRange)
     });
   }, {urls:['http://*/*','https://*/*']}, ['responseHeaders']);
 } catch {}

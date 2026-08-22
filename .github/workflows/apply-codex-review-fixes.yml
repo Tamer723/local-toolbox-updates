@@ -1,0 +1,92 @@
+name: Apply Codex review fixes
+
+on:
+  push:
+    branches:
+      - codex/implement-0.5.0-release-candidate
+    paths:
+      - '.github/workflows/apply-codex-review-fixes.yml'
+      - '.github/tools/apply-codex-review-fixes.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: codex/implement-0.5.0-release-candidate
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply reviewed Codex fixes
+        run: python .github/tools/apply-codex-review-fixes.py
+
+      - name: Format and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          find product/helper-src product/updater-src -name '*.go' -type f -print0 | xargs -0 gofmt -w
+          node --test product/extension/*.test.js
+          find product/extension -maxdepth 1 -name '*.js' -print0 | while IFS= read -r -d '' f; do node --check "$f"; done
+          python - <<'PY'
+          import json, pathlib
+          for p in pathlib.Path('product').rglob('*.json'):
+              json.loads(p.read_text(encoding='utf-8'))
+          assert json.loads(pathlib.Path('product/extension/manifest.json').read_text())['version'] == '0.5.0'
+          PY
+          (cd product/helper-src && go test ./...)
+          (cd product/updater-src && go test ./...)
+          (cd product/helper-src && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /tmp/local-toolbox-helper.exe .)
+          (cd product/updater-src && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /tmp/local-toolbox-updater-v2.exe .)
+          test -s /tmp/local-toolbox-helper.exe
+          test -s /tmp/local-toolbox-updater-v2.exe
+          bash product/build-candidate.sh
+          python - <<'PY'
+          import hashlib, json, pathlib, zipfile
+          p = pathlib.Path('product/build/candidate/LocalToolbox_update_0.5.0-rc.zip')
+          assert p.is_file() and p.stat().st_size > 0
+          data = p.read_bytes()
+          want = pathlib.Path('product/build/candidate/LocalToolbox_update_0.5.0-rc.sha256').read_text().strip().split()[0]
+          assert hashlib.sha256(data).hexdigest() == want
+          with zipfile.ZipFile(p) as z:
+              names = set(z.namelist())
+              required = {
+                  'payload/extension/manifest.json',
+                  'payload/extension/contracts.js',
+                  'payload/local-toolbox-helper.exe',
+                  'payload/local-toolbox-updater-v2.exe',
+              }
+              assert required <= names, required - names
+              assert 'payload/local-toolbox-updater.exe' not in names
+              assert json.loads(z.read('payload/extension/manifest.json'))['version'] == '0.5.0'
+          PY
+          git diff --check
+          if git diff --name-only HEAD -- latest.json releases/ | grep -q .; then
+            echo 'Production update feed was modified unexpectedly.' >&2
+            exit 1
+          fi
+
+      - name: Commit fixes and remove one-time applicator
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/apply-codex-review-fixes.yml .github/tools/apply-codex-review-fixes.py
+          git config user.name 'Tamer723'
+          git config user.email 'tamer723@ymail.com'
+          git add product .github/workflows/product-ci.yml
+          git diff --cached --check
+          git commit -m 'fix: address 0.5.0 review blockers'
+          git push origin HEAD:codex/implement-0.5.0-release-candidate

@@ -1,0 +1,106 @@
+name: Local Toolbox product CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - codex/0.5.0
+    paths:
+      - 'product/**'
+      - 'docs/architecture/**'
+      - '.github/workflows/product-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Protect production update feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          CHANGED="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+          if printf '%s\n' "$CHANGED" | grep -Eq '^(latest\.json|releases/)'; then
+            echo 'Production latest.json/releases must not change in a normal development PR.' >&2
+            printf '%s\n' "$CHANGED" | grep -E '^(latest\.json|releases/)' >&2 || true
+            exit 1
+          fi
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate JSON
+        shell: python
+        run: |
+          import json, pathlib
+          files = list(pathlib.Path('product').rglob('*.json'))
+          for path in files:
+              json.loads(path.read_text(encoding='utf-8'))
+          manifest = json.loads(pathlib.Path('product/extension/manifest.json').read_text(encoding='utf-8'))
+          assert manifest['version'] == '0.5.0', manifest['version']
+          print(f'validated {len(files)} JSON files; extension={manifest["version"]}')
+
+      - name: JavaScript syntax and contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          find product/extension -maxdepth 1 -name '*.js' -print0 | while IFS= read -r -d '' f; do node --check "$f"; done
+          node --test product/extension/contracts.test.js
+
+      - name: Go tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd product/helper-src && go test ./...)
+          (cd product/updater-src && go test ./...)
+
+      - name: Cross-build Windows binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd product/helper-src && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /tmp/local-toolbox-helper.exe .)
+          (cd product/updater-src && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /tmp/local-toolbox-updater.exe .)
+          test -s /tmp/local-toolbox-helper.exe
+          test -s /tmp/local-toolbox-updater.exe
+
+      - name: Build and verify unpublished candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash product/build-candidate.sh
+          python - <<'PY'
+          import hashlib, json, pathlib, zipfile
+          p = pathlib.Path('product/build/candidate/LocalToolbox_update_0.5.0-rc.zip')
+          assert p.is_file() and p.stat().st_size > 0
+          data = p.read_bytes()
+          sha = hashlib.sha256(data).hexdigest()
+          sha_file = pathlib.Path('product/build/candidate/LocalToolbox_update_0.5.0-rc.sha256').read_text().strip().split()[0]
+          assert sha == sha_file, (sha, sha_file)
+          with zipfile.ZipFile(p) as z:
+              names = set(z.namelist())
+              for required in [
+                  'payload/extension/manifest.json',
+                  'payload/extension/contracts.js',
+                  'payload/local-toolbox-helper.exe',
+                  'payload/local-toolbox-updater.exe',
+              ]:
+                  assert required in names, required
+              manifest = json.loads(z.read('payload/extension/manifest.json'))
+              assert manifest['version'] == '0.5.0'
+          print('candidate bytes=', len(data), 'sha256=', sha)
+          PY

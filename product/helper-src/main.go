@@ -504,10 +504,36 @@ func guessedNameFromResponse(req Request, resp *http.Response) string {
 	return "media-" + time.Now().Format("20060102-150405") + ext
 }
 
-func cookieHeader(cookies []BrowserCookie) string {
+func cookiePathMatches(requestPath, cookiePath string) bool {
+	if requestPath == "" {
+		requestPath = "/"
+	}
+	if cookiePath == "" {
+		cookiePath = "/"
+	}
+	if requestPath == cookiePath {
+		return true
+	}
+	if !strings.HasPrefix(requestPath, cookiePath) {
+		return false
+	}
+	return strings.HasSuffix(cookiePath, "/") || (len(requestPath) > len(cookiePath) && requestPath[len(cookiePath)] == '/')
+}
+
+// cookieHeader applies the browser cookie domain, path, and secure rules again
+// at the native boundary. This prevents a malformed or stale extension request
+// from attaching unrelated site cookies to a direct media request.
+func cookieHeader(cookies []BrowserCookie, target *url.URL) string {
 	parts := make([]string, 0, len(cookies))
+	host := strings.ToLower(target.Hostname())
 	for _, c := range cookies {
-		if c.Name == "" {
+		domain := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(c.Domain), "."))
+		domainMatches := host == domain
+		if !c.HostOnly && domain != "" {
+			domainMatches = domainMatches || strings.HasSuffix(host, "."+domain)
+		}
+		if c.Name == "" || strings.ContainsAny(c.Name+c.Value, "\r\n;") || !domainMatches ||
+			(c.Secure && target.Scheme != "https") || !cookiePathMatches(target.EscapedPath(), c.Path) {
 			continue
 		}
 		parts = append(parts, c.Name+"="+c.Value)
@@ -543,7 +569,7 @@ func runHTTPDownload(nw *nativeWriter, jm *jobManager, req Request, s Settings) 
 	if req.Referer != "" {
 		hreq.Header.Set("Referer", req.Referer)
 	}
-	if c := cookieHeader(req.Cookies); c != "" {
+	if c := cookieHeader(req.Cookies, u); c != "" {
 		hreq.Header.Set("Cookie", c)
 	}
 	hreq.Header.Set("Accept", "*/*")
@@ -561,7 +587,19 @@ func runHTTPDownload(nw *nativeWriter, jm *jobManager, req Request, s Settings) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_ = nw.send(Response{Event: "error", JobID: jobID, Kind: "download_detected", Message: fmt.Sprintf("الخادم رفض التنزيل المباشر (HTTP %d). جرّب المعالجة عبر yt-dlp.", resp.StatusCode), Stage: "اتصال مباشر", Version: version})
+		message := fmt.Sprintf("الخادم رفض التنزيل المباشر (HTTP %d). جرّب المعالجة عبر yt-dlp.", resp.StatusCode)
+		code := ErrorUnavailable
+		retryable := resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests
+		switch resp.StatusCode {
+		case http.StatusUnauthorized:
+			code, retryable = ErrorAuthenticationRequired, true
+		case http.StatusForbidden:
+			code, retryable = ErrorHTTP403, true
+		case http.StatusNotFound, http.StatusGone:
+			code, retryable = ErrorExpiredURL, true
+		}
+		_ = nw.send(Response{Event: "error", JobID: jobID, Kind: "download_detected", Message: message, Stage: "اتصال مباشر", Version: version,
+			Error: &ErrorModel{Code: code, Message: message, Retryable: retryable, HTTPStatus: resp.StatusCode}})
 		return
 	}
 	outDir := ensureOutputDir(s)

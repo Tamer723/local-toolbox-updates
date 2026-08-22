@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Local Toolbox</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">LT</div>
+        <div>
+          <h1>Local Toolbox</h1>
+          <div class="helper-line"><span id="helperDot" class="dot pending"></span><span id="helperText">جارٍ الاتصال…</span></div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="openOutputTop" class="icon-btn" title="فتح مجلد الحفظ" aria-label="فتح مجلد الحفظ">⌂</button>
+        <button id="settingsBtn" class="icon-btn" title="الإعدادات" aria-label="الإعدادات">⚙</button>
+      </div>
+    </header>
+
+    <section id="mainView">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="download">تنزيل</button>
+        <button class="tab" data-tab="local">ملف محلي</button>
+        <button class="tab" data-tab="jobs">المهام</button>
+      </div>
+
+      <section class="panel active" data-panel="download">
+        <article class="card hero-card">
+          <div class="card-title-row">
+            <div>
+              <span class="eyebrow">الرابط الحالي</span>
+              <h2>تنزيل الوسائط</h2>
+            </div>
+            <button id="useCurrent" class="text-btn">استخدام الصفحة الحالية</button>
+          </div>
+
+          <div class="url-box">
+            <input id="urlInput" type="url" dir="ltr" placeholder="https://youtube.com/...">
+            <button id="inspectUrl" class="compact-btn" title="تحقق متقدم عبر yt-dlp عند الحاجة">تحقق</button>
+          </div>
+          <div id="urlStatus" class="url-status neutral">ألصق رابط فيديو من YouTube أو Facebook أو Instagram أو X.</div>
+
+          <div id="mediaPreview" class="media-preview hidden">
+            <img id="mediaThumb" alt="" loading="lazy">
+            <div class="media-meta">
+              <strong id="mediaTitle"></strong>
+              <span id="mediaSub"></span>
+            </div>
+          </div>
+
+          <div class="defaults-line">
+            <span id="defaultQualityChip" class="chip">فيديو 1080p</span>
+            <span id="defaultBitrateChip" class="chip">MP3 192 kbps</span>
+            <button id="editDefaults" class="mini-link">تعديل</button>
+          </div>
+
+          <div class="primary-grid">
+            <button id="downloadVideo" class="action-card primary-action">
+              <span class="action-icon">↓</span>
+              <span><strong>تحميل الفيديو</strong><small>بالجودة الافتراضية</small></span>
+            </button>
+            <button id="downloadAudio" class="action-card">
+              <span class="action-icon">♫</span>
+              <span><strong>تحميل MP3</strong><small>استخراج الصوت مباشرة</small></span>
+            </button>
+          </div>
+
+          <div class="secondary-actions">
+            <button id="downloadThumb">▣ الصورة المصغرة</button>
+            <button id="downloadSubs">CC الترجمة</button>
+          </div>
+          <div id="downloadNotice" class="notice hidden"></div>
+        </article>
+
+        <article class="card">
+          <span class="eyebrow">تنزيل دفعة</span>
+          <h2>روابط متعددة وقوائم تشغيل</h2>
+          <textarea id="batchUrls" class="text-input batch-input" dir="ltr" rows="4" placeholder="رابط واحد في كل سطر"></textarea>
+          <label class="toggle-row"><input id="batchPlaylist" type="checkbox"><span><strong>تنزيل قوائم التشغيل كاملة</strong><small>عند التعطيل، ينزّل yt-dlp العنصر الحالي فقط.</small></span></label>
+          <button id="enqueueBatch" class="wide-primary">إضافة إلى قائمة الانتظار</button>
+          <p id="batchStatus" class="field-help"></p>
+        </article>
+
+        <article id="detectedMediaCard" class="card detected-card hidden">
+          <div class="row-between">
+            <div><span class="eyebrow">اكتشاف تلقائي</span><h2>وسائط الصفحة <span id="detectedCount" class="count-pill">0</span></h2></div>
+            <button id="refreshDetected" class="secondary-btn">إعادة الفحص</button>
+          </div>
+          <p class="muted detected-help">يعرض الملفات والمسارات التي اكتشفها Chrome من الصفحة والشبكة. الملفات المباشرة تُنزّل محليًا دون تشغيل yt-dlp.</p>
+          <div id="detectedMediaList" class="detected-list"></div>
+        </article>
+
+        <article class="card slim-card">
+          <div class="row-between">
+            <div>
+              <span class="eyebrow">مكان الحفظ</span>
+              <div id="outputSummary" class="output-summary">Downloads\LocalToolbox</div>
+            </div>
+            <button id="openOutput" class="secondary-btn">فتح المجلد</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel" data-panel="local">
+        <article class="card">
+          <span class="eyebrow">أدوات محلية</span>
+          <h2>تحويل فيديو أو صوت إلى MP3</h2>
+          <p class="muted">المعالجة تتم على جهازك باستخدام FFmpeg، ولا يُرفع الملف إلى أي خدمة.</p>
+
+          <button id="pickFile" class="file-drop">
+            <span class="file-icon">＋</span>
+            <span><strong>اختيار فيديو أو ملف صوتي</strong><small>MP4, MKV, MOV, M4A, WAV, FLAC…</small></span>
+          </button>
+          <div id="selectedFile" class="selected-file hidden">
+            <div class="file-name" id="selectedFileName"></div>
+            <div class="file-path" id="selectedFilePath"></div>
+          </div>
+
+          <div class="defaults-line local-defaults">
+            <span id="localBitrateChip" class="chip">MP3 192 kbps</span>
+            <button id="editAudioDefault" class="mini-link">تعديل من الإعدادات</button>
+          </div>
+
+          <button id="convertMp3" class="wide-primary" disabled>تحويل إلى MP3</button>
+        </article>
+      </section>
+
+      <section class="panel" data-panel="jobs">
+        <article class="card">
+          <div class="row-between">
+            <div><span class="eyebrow">الآن</span><h2>المهام</h2></div>
+            <button id="refreshJobs" class="secondary-btn">تحديث</button>
+          </div>
+          <div id="performanceSummary" class="performance-summary">2 تنزيل متزامن • 1 معالجة محلية • 4 أجزاء لكل تنزيل</div>
+          <div id="jobsList" class="stack-list empty-state">لا توجد مهام قيد التنفيذ.</div>
+        </article>
+
+        <article class="card">
+          <div class="row-between"><div><span class="eyebrow">الأخيرة</span><h2>السجل</h2></div><button id="clearHistory" class="text-btn danger">مسح</button></div>
+          <div id="historyList" class="stack-list empty-state">لا توجد عمليات مكتملة بعد.</div>
+        </article>
+      </section>
+    </section>
+
+    <section id="settingsView" class="settings-view hidden">
+      <div class="settings-head">
+        <button id="backBtn" class="icon-btn">→</button>
+        <div><span class="eyebrow">Local Toolbox</span><h2>الإعدادات</h2></div>
+      </div>
+
+      <article class="card">
+        <h3>الحفظ والافتراضيات</h3>
+        <label class="field-label">مجلد الحفظ</label>
+        <div class="path-control">
+          <div id="settingsOutputDir" class="path-text" dir="ltr"></div>
+          <button id="chooseOutput" class="secondary-btn">تغيير</button>
+        </div>
+
+        <div class="form-grid">
+          <label>جودة الفيديو الافتراضية
+            <select id="settingQuality">
+              <option value="best">Best</option><option value="2160">2160p</option><option value="1440">1440p</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option>
+            </select>
+          </label>
+          <label>جودة MP3 الافتراضية
+            <select id="settingBitrate">
+              <option value="128">128 kbps</option><option value="192">192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="field-label">لغات الترجمة</label>
+        <input id="settingSubs" class="text-input" dir="ltr" placeholder="ar,en,tr">
+        <p class="field-help">استخدم رموز اللغات مفصولة بفاصلة.</p>
+
+        <label class="toggle-row">
+          <input id="settingAutoOpen" type="checkbox">
+          <span><strong>فتح مكان الملف بعد اكتمال المهمة</strong><small>يفتح Explorer تلقائيًا ويحدد الملف الناتج.</small></span>
+        </label>
+      </article>
+
+      <article class="card">
+        <h3>الجلسة والمواقع التي تتطلب تسجيل دخول</h3>
+        <label class="field-label">جلسة الموقع</label>
+        <select id="settingBrowser" class="full-select">
+          <option value="auto">تلقائي — جلسة Chrome الحالية عند الحاجة (موصى به)</option>
+          <option value="none">بدون جلسة</option>
+        </select>
+        <p class="field-help">في الوضع التلقائي تمرر الإضافة Cookies الخاصة بالموقع المطلوب فقط إلى الـLocal Helper مؤقتًا، من دون قراءة قاعدة Cookies المقفلة في Chrome ومن دون حفظها بعد انتهاء العملية.</p>
+        <label class="toggle-row">
+          <input id="settingForceIPv4" type="checkbox">
+          <span><strong>تفضيل IPv4 عند التنزيل</strong><small>مفعّل افتراضيًا لتحسين توافق بعض المواقع وتقليل أخطاء 403 المرتبطة بالشبكة.</small></span>
+        </label>
+      </article>
+
+      <article class="card">
+        <h3>الأداء</h3>
+        <p class="muted compact-muted">هذه القيم توازن بين السرعة واستهلاك الجهاز. الإعدادات الحالية مناسبة لمعظم أجهزة Windows الحديثة.</p>
+        <div class="form-grid performance-grid">
+          <label>التنزيلات المتزامنة
+            <select id="settingConcurrentDownloads">
+              <option value="1">1</option>
+              <option value="2">2 — موصى به</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </label>
+          <label>المعالجات المحلية
+            <select id="settingConcurrentProcessing">
+              <option value="1">1 — موصى به</option>
+              <option value="2">2</option>
+            </select>
+          </label>
+          <label>أجزاء التنزيل المتوازية
+            <select id="settingConcurrentFragments">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="4">4 — موصى به</option>
+              <option value="8">8</option>
+            </select>
+          </label>
+        </div>
+        <p class="field-help">رفع القيم لا يعني دائمًا سرعة أعلى؛ قد تزيد بعض المواقع القيود أو يزداد ضغط القرص والمعالج.</p>
+      </article>
+
+      <article class="card">
+        <div class="row-between"><h3>الأدوات المحلية</h3><button id="checkTools" class="secondary-btn">فحص الأدوات</button></div>
+        <div id="toolsList" class="tools-list"></div>
+        <details class="install-details">
+          <summary>أوامر التثبيت</summary>
+          <div class="command-row"><code>winget install --id Gyan.FFmpeg -e</code><button data-copy="winget install --id Gyan.FFmpeg -e">نسخ</button></div>
+          <div class="command-row"><code>winget install --id yt-dlp.yt-dlp -e</code><button data-copy="winget install --id yt-dlp.yt-dlp -e">نسخ</button></div>
+          <div class="command-row"><code>winget install --id DenoLand.Deno -e</code><button data-copy="winget install --id DenoLand.Deno -e">نسخ</button></div>
+        </details>
+      </article>
+
+      <article class="card update-card">
+        <div class="row-between"><div><span class="eyebrow">النظام</span><h3>التحديثات</h3></div><span id="currentVersionBadge" class="version-badge">0.4.0</span></div>
+        <div id="updateStatusBox" class="status-box update-status-box">لم يتم فحص التحديثات بعد.</div>
+        <div id="updateProgressWrap" class="update-progress hidden">
+          <div class="row-between"><span id="updateStage">تحديث</span><strong id="updatePercent" dir="ltr">0%</strong></div>
+          <div class="progress-track"><div id="updateProgressFill" class="progress-fill" style="width:0%"></div></div>
+        </div>
+        <div id="updateNotes" class="update-notes hidden"></div>
+        <div class="update-actions">
+          <button id="checkUpdate" class="secondary-btn">فحص الآن</button>
+          <button id="applyUpdate" class="wide-primary hidden">تحديث الآن</button>
+        </div>
+        <label class="toggle-row">
+          <input id="settingAutoCheckUpdates" type="checkbox">
+          <span><strong>البحث تلقائيًا عن التحديثات</strong><small>يفحص المصدر مرة كل 12 ساعة عند استخدام الإضافة.</small></span>
+        </label>
+        <label class="toggle-row">
+          <input id="settingAutoInstallUpdates" type="checkbox">
+          <span><strong>تثبيت التحديثات تلقائيًا</strong><small>مغلق افتراضيًا. عند تفعيله يثبت إصدارًا أحدث بعد اكتشافه والتحقق من SHA-256.</small></span>
+        </label>
+        <details class="install-details update-advanced">
+          <summary>مصدر التحديث المتقدم</summary>
+          <input id="settingUpdateSource" class="text-input" dir="ltr" placeholder="https://raw.githubusercontent.com/.../latest.json">
+          <p class="field-help">يُقبل HTTPS فقط. الحزمة لا تُثبت إلا إذا طابقت بصمة SHA-256 المنشورة.</p>
+        </details>
+      </article>
+
+      <article class="card">
+        <h3>الاتصال</h3>
+        <div id="connectionDetails" class="status-box"></div>
+        <button id="reconnectBtn" class="secondary-btn wide">إعادة اختبار الاتصال</button>
+      </article>
+
+      <button id="saveSettings" class="wide-primary sticky-save">حفظ الإعدادات</button>
+    </section>
+
+    <div id="toast" class="toast hidden"></div>
+  </main>
+  <script src="contracts.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

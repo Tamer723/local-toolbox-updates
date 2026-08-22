@@ -1,0 +1,10 @@
+{
+  "protocolVersion": 1,
+  "release": "0.5.0",
+  "jobStates": ["queued", "analyzing", "downloading", "processing", "completed", "failed", "cancelled", "interrupted"],
+  "downloadStrategies": ["direct_http", "yt_dlp", "ffmpeg"],
+  "commands": ["ping", "get_settings", "save_settings", "check_tools", "pick_file", "pick_output_folder", "open_path", "fetch_info", "convert_mp3", "download_video", "download_audio", "download_thumbnail", "download_subtitles", "download_stream", "extract_detected_audio", "download_detected", "cancel_job", "check_update", "apply_update"],
+  "events": ["pong", "settings", "settings_saved", "tools_status", "file_cancelled", "file_selected", "folder_cancelled", "folder_selected", "path_opened", "media_info", "queued", "job_started", "progress", "complete", "error", "cancelled", "cancel_requested", "update_status", "update_error", "update_progress", "update_restarting"],
+  "errorCodes": ["invalid_request", "unsupported", "authentication_required", "unavailable", "drm_protected", "expired_url", "http_403", "extraction_failed", "cancelled", "tool_missing", "io_error", "update_failed", "internal"],
+  "capabilities": ["directHttp", "ytDlp", "ffmpeg", "ffprobe", "deno", "playlists", "subtitles", "thumbnails", "browserSession", "cancel", "retry", "restartRecovery"]
+}

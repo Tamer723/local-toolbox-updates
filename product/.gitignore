@@ -1,0 +1,9 @@
+# Generated release-candidate outputs.
+/build/
+/dist/
+/candidate/
+*.exe
+*.zip
+
+# Reconstructed by extension/icons/generate-icons.sh from text sources.
+/extension/icons/*.png

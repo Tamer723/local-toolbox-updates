@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
-const {Protocol, JobState, NativeCommand, NativeEvent, job:contractJob, downloadRequest} = LocalToolboxContracts;
+const {Protocol, JobState, NativeCommand, NativeEvent, job:contractJob, reduceJobEvent, downloadRequest} = LocalToolboxContracts;
 const {jobPresentation} = LocalToolboxUILogic;
 
 const state = {
@@ -853,7 +853,7 @@ chrome.runtime.onMessage.addListener((m) => {
     setUpdateProgress(100, 'اكتمل', `تم تثبيت ${m.version || 'الإصدار الجديد'}. جارٍ إعادة تحميل الواجهة…`);
   } else if (['queued','job_started','progress','complete','error','cancelled','cancel_requested'].includes(m.event) && m.jobId) {
     const old = state.jobs.get(m.jobId) || { id:m.jobId, jobId:m.jobId, kind:m.kind, createdAt:Date.now() };
-    const next = contractJob({...old,...m,state:m.state || undefined,id:m.jobId,updatedAt:Date.now()});
+    const next = reduceJobEvent(old,{...m,id:m.jobId,updatedAt:Date.now()});
     if (m.event === 'error') next.progress = Math.min(Number(old.progress)||0, 95);
     if (m.event === 'complete') next.progress = 100;
     state.jobs.set(m.jobId,next); renderJobs();

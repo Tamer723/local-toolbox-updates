@@ -13,9 +13,17 @@
   function downloadRequest(value={}) { return {...value,protocolVersion:Protocol.version,action:String(value.action||''),jobId:String(value.jobId||''),url:String(value.url||''),operation:String(value.operation||value.action||''),strategy:value.strategy||''}; }
   function job(value={}) { const event=value.event||'',state=value.state||eventState[event]||JobState.QUEUED; return {...value,id:String(value.id||value.jobId||''),jobId:String(value.jobId||value.id||''),state,progress:Math.max(0,Math.min(state===JobState.COMPLETED?100:99.5,Number(value.progress)||0))}; }
   function progressEvent(value={}) { const state=value.state||eventState[value.event]||JobState.DOWNLOADING; return {...value,protocolVersion:Number(value.protocolVersion)||Protocol.version,event:value.event||NativeEvent.PROGRESS,state,progress:Math.max(0,Math.min(state===JobState.COMPLETED?100:99.5,Number(value.progress)||0))}; }
+  function reduceJobEvent(previous={},value={}) {
+    const old=job(previous);
+    const incoming=progressEvent(value);
+    const terminal=new Set([JobState.COMPLETED,JobState.FAILED,JobState.CANCELLED]);
+    if (terminal.has(old.state) && !terminal.has(incoming.state)) return job({...incoming,...old,updatedAt:value.updatedAt||old.updatedAt});
+    if (incoming.event===NativeEvent.CANCEL_REQUESTED) return job({...old,...incoming,state:old.state,progress:old.progress});
+    return job({...old,...incoming});
+  }
   function downloadResult(value={}) { return {...value,jobId:String(value.jobId||''),state:value.state||JobState.COMPLETED,path:String(value.path||''),strategy:value.strategy||''}; }
   function nativeRequest(value={}) { return downloadRequest(value); }
-  const api=Object.freeze({Protocol,JobState,DownloadStrategy,NativeCommand,NativeEvent,ErrorCode,Capability,mediaItem,downloadRequest,job,progressEvent,downloadResult,nativeRequest});
+  const api=Object.freeze({Protocol,JobState,DownloadStrategy,NativeCommand,NativeEvent,ErrorCode,Capability,mediaItem,downloadRequest,job,progressEvent,reduceJobEvent,downloadResult,nativeRequest});
   globalThis.LocalToolboxContracts=api;
   if (typeof module !== 'undefined' && module.exports) module.exports=api;
 })();
